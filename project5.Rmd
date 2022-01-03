@@ -1,0 +1,139 @@
+---
+title: "project5"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#libraries used
+library(readr)
+library(dplyr)
+#library(devtools)
+library(ggplot2)
+library(ggrepel)
+library(psych)
+```
+
+##Introduction
+
+Open Pyschometrics is an online repository of interactive personality tests that aggregates, and publishes, anonymous results of those who take the personality accessments. They contain more popular quizzes like the Big Five Personality Test, the MBTI test, and the Ennegram and also lesser known personality tests, such as the Dark Triad test, the Rosenberg Self Esteem Scale, and Exposure Based Face Memory test.
+
+This project explores the correlations of how people answer a personality test to their resulting Emotional quotient and Systematic quotient results. Emotional Quotient, or EQ, is a measure of sensitivity, self-regulation, and societal interaction. Systematic Quotient, or SQ, is a measure of systematic thinking, or logical thinking, skills, distinct and more specific than the IQ. 
+
+The test has 120 questions: 60 EQ questions, and 60 SQ questions. We will utilize Principal Components Analysis to see what groups of questions best predict good EQ and SQ scores respectively. 
+
+First, our data:
+
+```{r}
+#import our data
+data = na.omit(read_delim("C:\\Users\\saipr\\Desktop\\Programming\\R\\EQSQ\\data.csv", delim = "\t"))
+
+head(data) #view it
+```
+E1 - E60 are the 60 EQ questions, and S1 - S60 are the 60 SQ questions. Factors like gender, age, and accuracy (one's self acessment of how accurate they think their scores are) are omitted for the sake of this analysis. We'll also need to scale our data.
+
+```{r}
+#gets rid of demographic information, results
+X = data %>% select(starts_with(c("E", "S"))) %>% select(-c("EQ", "SQ")) 
+
+#scale our data
+X = as.data.frame(scale(X))
+head(X)
+```
+
+
+##Exploratory Data Analysis
+
+Looking at our EQ score:
+
+```{r}
+data %>% select("EQ") %>% ggplot(aes(x = EQ)) + geom_histogram() + labs(title = "EQ distribution", x = "EQ Score", y = "Count")
+```
+
+We see it's a fairly symmetric looking distribution, with most people having between 20 and 60 as their EQ score. 
+
+Observing our SQ:
+
+```{r}
+data %>% select("SQ") %>% ggplot(aes(x = SQ)) + geom_histogram() + labs(title = "SQ distribution", x = "SQ Score", y = "Count")
+```
+
+We see that the data is more left skewed here, with more people between 10 and 30 as their score, and a few high score individuals above 60.
+
+Let's see if there's any relationship between EQ and SQ:
+
+```{r}
+data %>% select("SQ", "EQ") %>% ggplot(aes(x = EQ, y = SQ)) + geom_point() + labs(title = "EQ vs. SQ", x = "EQ Score", y = "SQ Score")
+```
+
+None in particular: people seem to be all over the map. Some of this could be due to the lack of regulation when it comes to the open psychometrics test takers - there could be those who are contrary, or answering in a tired way, thus adding much more noise. 
+
+Regardless, now that we understand our data a bit more, let us conduct a PCA. 
+
+##Performing PCA
+
+Principal Component Analysis is used to group together variables which are multicolinear with other. Multicolinearity is the issue when your supposedly independent variables aren't actually independent of each other: there are significant correlations between them, and thus this biases the model.
+
+Traditionally, one removes one of the multicolinear variables, but this may take away from the model essential information. Thus, PCA aims to group similar variables together into a representative component variable that, although reduced in specificity, represents the group of variables that all inform the dependent variable. 
+
+This is especially useful in psychological questionnaires, because they tend to ask the same question in slightly different ways repeatedly, in order to discern people's results more accurately; in our case with 120 questions where the user has to rate their response from 1 to 5, this is especially true. 
+
+The first question is - how many components do we need? 
+
+We solve this by utilizing a Screeplot. A screeplot conducts what's known as an eigenvalue criterion in order to see how much benefit we get from each additional component: we generally continue to include components until we no longer get significant increases in the quality of our model based on the increased number of components. 
+
+
+```{r}
+pc.x = prcomp(X)
+
+plot(pc.x, type = "lines", main = "EQ SQ Screeplot")
+```
+
+In our case, we get diminishing returns at about components = 3. So, we will conduct a PCA with 3 components. 
+
+```{r}
+pcal1 = principal(X, rotate = "varimax", nfactors = 3)
+print(pcal1$loadings, cutoff = .5)
+```
+Group 1 contains questions like "I am fascinated with how machines work" and "I can't relax until I've done everything I planned to do today" to indicate a more orderly and systematic thinker who requires rigid rules to function well.
+
+Group 2 contains questions like "I often forget the precise details of conversations I've had" and "I find it difficult to remember people's faces" in order to indicate an individual who, although may be prosocial, is fairly forgetful.
+
+Finally, group 3 contains questions like "I can tell if someone is masking their true emotion" and "I can usually appreciate the other's viewpoint, even if I don't agree with it", to suggest someone who's fairly emotionally observant and fair. 
+
+Let's see how well these three components do in predicting EQ:
+
+```{r}
+RC1 = pcal1$score[,1] 
+RC2 = pcal1$score[,2]
+RC3 = pcal1$score[,3]
+
+#make 2 linear models, one for predicting SQ, EQ
+#predicting EQ - not very good at it
+eq = data$EQ
+fit2 = lm(eq ~ RC1 + RC2 + RC3)
+summary(fit2)
+
+```
+With all three components significant, but only RC2 having a positive correlation with EQ and an R^2 value of 28%, we may need to investigate further before we consider this the strongest possible model to predict EQ. However, it's reasonable to consider that because EQ contains a greater bundle of skills than SQ, that it's a more vaguely defined term and thus harder to predict. 
+
+Now, to see how our model does in predicting SQ:
+
+```{r}
+#predicting SQ - actually really good at predicting this
+sq = data$SQ
+fit1 = lm(sq ~ RC1 + RC2 + RC3)
+summary(fit1)
+```
+The model does significantly better at predicting SQ than EQ (likely due to SQ's clearer definition) though component 3 is less important and only minimally significant in this case. Our R^2 is nearly 90%, and our first two components are highly significant, suggesting that this is a fairly viable model for predicting an individual's SQ score. 
+
+##Conclusion
+
+Ultimately, PCA is a powerful data reduction tool to incorporate multicolinear but useful information into a linear model, especially useful in psychological surveys. 
+
+In our case, we investigated the EQ/SQ scaled tests, finding a linear regression after PCA that predicts SQ well, but doesn't quite predict EQ well. This may be because of the difference in what SQ means vs. EQ: EQ is a variety of skills utilized in social interaction and self regulation, while SQ is a few interlocked skills in logical thinking.
+
+Further study could be figuring out how to clean the data better - it's clear that this data contains a fair amount of noise, though there is no clear and effective way to get rid of it. This is likely best done by observing other studies on this matter and developing a heuristic to remove the most extreme of data points, but regardless, it's outside the scope of this study. 
+
+
